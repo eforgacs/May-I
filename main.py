@@ -1,8 +1,19 @@
-import logging
 import random
 from collections import Counter
 
 import pydealer
+
+
+class BColors:
+    HEADER = '\033[95m'
+    OK_BLUE = '\033[94m'
+    OK_CYAN = '\033[96m'
+    OK_GREEN = '\033[92m'
+    WARNING = '\033[93m'
+    RED = '\033[91m'
+    END_COLOR = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
 
 
 class VictoryConditions:
@@ -44,14 +55,51 @@ class Opponent:
 
 
 def prompt_to_choose_card(msg, cards, skip_wilds=False):
+    if skip_wilds:
+        for index, card in enumerate(cards):
+            if card.value != '2':
+                color_format_print_single_card(card, index)
+    else:
+        for index, card in enumerate(cards):
+            color_format_print_single_card(card, index)
+    entry = input(msg)
+    return entry
+
+
+def color_format_print_cards(cards, with_indices=False, skip_wilds=False):
     for index, card in enumerate(cards):
         if skip_wilds:
             if card.value != '2':
-                print(f"{index}: {card}")
+                if not with_indices:
+                    color_format_print_single_card(card, index=None)
+                else:
+                    color_format_print_single_card(card, index)
         else:
-            print(f"{index}: {card}")
-    entry = input(msg)
-    return entry
+            if not with_indices:
+                color_format_print_single_card(card, index=None)
+            else:
+                color_format_print_single_card(card, index)
+
+
+def color_format_print_single_card(card, index):
+    color_formatted_card = get_formatted_card_string(card, index=index)
+    print(color_formatted_card)
+
+
+def get_formatted_card_string(card, index):
+    if card.suit == 'Spades':
+        color_formatted_card = f"♠ {card}"
+    elif card.suit == 'Hearts':
+        color_formatted_card = f"{BColors.RED}♥ {card}{BColors.END_COLOR}"
+    elif card.suit == 'Diamonds':
+        color_formatted_card = f"{BColors.RED}♦ {card}{BColors.END_COLOR}"
+    elif card.suit == 'Clubs':
+        color_formatted_card = f"♣ {card}"
+    else:
+        color_formatted_card = f"_ {card}"
+    if index is not None:
+        color_formatted_card = f"{index}: {color_formatted_card}"
+    return color_formatted_card
 
 
 class Game:
@@ -71,12 +119,11 @@ class Game:
         self.down = False
         self.down_cards = pydealer.Stack()
 
-        self.opponent_1 = Opponent("Inky")
-        self.opponent_2 = Opponent("Pinky")
-        self.opponent_1.hand = self.deck.deal(11)
-        self.opponent_1.hand.sort()
-        self.opponent_2.hand = self.deck.deal(11)
-        self.opponent_2.hand.sort()
+        self.opponents = [Opponent("Inky"), Opponent("Pinky"), Opponent("Blinky")]
+
+        for opponent in self.opponents:
+            opponent.hand = self.deck.deal(11)
+            opponent.hand.sort()
 
         self.discard_pile = pydealer.Stack()
         self.discard_pile.add(self.deck.deal())
@@ -106,35 +153,45 @@ class Game:
                 if self.rounds[self.round]['func'](self.hand.cards, self.victory_cards):
                     self.prompt_to_go_down()
                 self.prompt_for_discard()
-            self.opponents_turn(self.opponent_1)
-            self.opponents_turn(self.opponent_2)
+            for opponent in self.opponents:
+                self.opponents_turn(opponent)
             self.current_situation()
 
     def opponents_turn(self, opponent):
         print(f"It is {opponent.name}'s turn.")
-        # TODO: Allow opponents to choose cards from the discard pile as well.
-        print(f"{opponent.name} chooses a card from the deck.")
-        opponent.hand.add(self.deck.deal())
+        deck_or_discard_pile = random.randint(0, 1)
+        if deck_or_discard_pile == 0:
+            print(f"{opponent.name} chooses a card from the deck.")
+            opponent.hand.add(self.deck.deal())
+        elif deck_or_discard_pile == 1:
+            print(f"{opponent.name} chooses the {self.discard_pile[len(self.discard_pile) - 1]} from the discard pile.")
+            opponent.hand.add(self.discard_pile.deal())
         # TODO: Improve AI discard selection.
-        discarded_card = self.discard(random.choice(range(len(opponent.hand) - 1)), opponent.hand)
-        print(f"{opponent.name} discards: {discarded_card}.")
+        possible_choices = []
+        for card_index, card in enumerate(opponent.hand):
+            if card.value != '2':
+                possible_choices.append(card_index)
+        discarded_card_index = random.choice(possible_choices)
+        discarded_card = self.discard(discarded_card_index, opponent.hand)
+        print(f"{opponent.name} discards: {get_formatted_card_string(discarded_card, index=None)}.")
         input()
 
     def current_situation(self):
-        print(f"Your hand:\n{self.hand}\n")
+        print(f"Your hand:\n")
+        color_format_print_cards(self.hand)
         if self.verbose:
-            print(f"Discard pile (bottom to top):\n{self.discard_pile}\n")
+            print(f"\nDiscard pile (bottom to top):\n{self.discard_pile}\n")
         else:
-            print(f"Discard pile:\n{self.discard_pile[len(self.discard_pile) - 1]}\n")
+            print(
+                f"\nDiscard pile:\n{get_formatted_card_string(self.discard_pile[len(self.discard_pile) - 1], index=None)}\n")
         if self.down_cards:
             print(f"Your down cards:\n{self.down_cards}")
 
     def prompt_to_go_down(self):
         self.victory_card_values = set([card.value for card in self.victory_cards.cards])
-        print("You may go down using a subset of the following cards:\n")
-        for card in self.victory_cards:
-            print(f"{card}")
-        go_down_response = input("Will you go down?\n"
+        print(f"{BColors.OK_BLUE}You may go down using a subset of the following cards:{BColors.END_COLOR}\n")
+        color_format_print_cards(self.victory_cards.cards)
+        go_down_response = input(f"\n{BColors.OK_CYAN}Will you go down?{BColors.END_COLOR}\n"
                                  "1. Yes\n"
                                  "2. No\n")
         if go_down_response == '1':
@@ -142,7 +199,7 @@ class Game:
         elif go_down_response == '2':
             self.down = False
         else:
-            print("Invalid entry.\n")
+            print(f"{BColors.WARNING}Invalid entry.{BColors.END_COLOR}\n")
 
     def go_down(self):
         if self.round == 1:
@@ -151,7 +208,8 @@ class Game:
                 print("Auto-selecting down cards.")
                 self.auto_select_down_cards()
             else:
-                cards_to_use_to_go_down = prompt_to_choose_card("Which cards will you use to go down?\n", self.victory_cards, skip_wilds=True)
+                cards_to_use_to_go_down = prompt_to_choose_card("Which cards will you use to go down?\n",
+                                                                self.victory_cards, skip_wilds=True)
                 self.down_cards.add(cards_to_use_to_go_down)
                 for down_card_index in cards_to_use_to_go_down:
                     del self.hand.cards[(int(down_card_index))]
@@ -164,37 +222,37 @@ class Game:
                 self.hand.cards.remove(card)
 
     def prompt_for_card_draw(self):
-        while len(self.hand.cards) == 11:
+        while len(self.hand.cards) % 2 != 0:
             card_to_draw = input("Will you draw a card from:\n"
                                  "1. The deck?\n"
                                  "2. The discard pile?\n")
             if card_to_draw == '1':
-                new_card = self.deck.deal()
-                print(f"\nYou picked up: {new_card}\n")
-                self.hand.add(new_card)
+                new_card_stack = self.deck.deal()
+                new_card = new_card_stack.cards[len(new_card_stack.cards) - 1]
+                print(f"\nYou picked up: {get_formatted_card_string(new_card, index=None)} from the deck.\n")
+                self.hand.add(new_card_stack)
                 self.hand.sort()
             elif card_to_draw == '2':
-                new_card = self.discard_pile.deal()
-                print(f"You picked up: {new_card}\n")
-                self.hand.add(new_card)
+                new_card_stack = self.discard_pile.deal()
+                new_card = new_card_stack.cards[len(new_card_stack.cards) - 1]
+                print(f"You picked up: {get_formatted_card_string(new_card, index=None)} from the discard pile.\n")
+                self.hand.add(new_card_stack)
                 self.hand.sort()
             else:
                 print("Invalid entry.\n")
 
     def prompt_for_discard(self):
-        print("Discard one card.\n")
-        discard_entry = prompt_to_choose_card("Which card will you discard?\n", self.hand)
-        if not discard_entry:
-            print("Empty entry. Please try again.")
-        # TODO: Validate entries.
-        # if discard_entry not in range(len(self.hand.cards)):
-        #     print("Invalid entry.\n")
-        try:
-            discarded_card = self.discard(discard_entry, self.hand)
-            print(f"You discarded the {discarded_card}.\n")
-        except ValueError as e:
-            logging.error(e)
-            print("Invalid entry. Please try again.")
+        while len(self.hand.cards) % 2 == 0:
+            print("Discard one card.\n")
+            discard_entry = prompt_to_choose_card("Which card will you discard?\n", self.hand)
+
+            if not discard_entry:
+                print(f"{BColors.WARNING}Empty entry. Please try again.{BColors.END_COLOR}\n")
+            elif int(discard_entry) not in range(len(self.hand.cards)):
+                print(f"{BColors.WARNING}Invalid entry. Please try again.{BColors.END_COLOR}\n")
+            else:
+                discarded_card = self.discard(discard_entry, self.hand)
+                print(f"You discarded the {discarded_card}.\n")
 
     def discard(self, discard_index, hand):
         # TODO: Validate entries.
