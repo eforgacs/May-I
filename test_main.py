@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from pydealer import Card, Stack, VALUES
 
-from src.main import VictoryConditions, Game, get_points
+from src.main import VictoryConditions, Game, get_points, auto_select_down_cards
 
 
 def three_of_a_kind(value):
@@ -162,6 +162,16 @@ class TestGame(TestCase):
         VictoryConditions.two_three_of_a_kind(self.game.hand.cards, self.game.victory_cards)
         self.game.go_down()
         self.assertEqual(three_of_a_kind(3), self.game.hand)
+
+    @patch('builtins.input', side_effect=['1', '2', '1'])
+    def test_go_down_manual_select_with_wild_cards(self, mock_input):
+        self.game.hand.add(wild_three_of_a_kind(3))
+        self.game.hand.add(wild_three_of_a_kind(4))
+        self.game.hand.add(wild_three_of_a_kind(5))
+        VictoryConditions.two_three_of_a_kind(self.game.hand.cards, self.game.victory_cards)
+        self.game.go_down()
+        self.assertEqual(Stack(cards=deque([Card(value='5', suit='Diamonds'), Card(value='5', suit='Hearts')])),
+                         self.game.hand)
 
     def test_get_points_of_hand_JQK(self):
         self.game.hand.add(Card("Jack", "Clubs"))

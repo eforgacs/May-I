@@ -60,30 +60,34 @@ class Opponent:
         self.victory_cards = pydealer.Stack()
         self.down_cards = pydealer.Stack()
         self.formatted_name = f"{self.color}{self.name}{BColors.END_COLOR}"
+        self.down = False
 
 
-def prompt_to_choose_card(msg, cards, skip_wilds=False):
-    color_format_print_cards(cards, with_indices=True, skip_wilds=skip_wilds)
+def prompt_to_choose_card(msg, cards):
+    color_format_print_cards(cards, with_indices=True)
     return input(msg)
 
 
-def color_format_print_cards(cards, with_indices=False, skip_wilds=False):
+def color_format_print_cards(cards, with_indices=False, single_line=False):
     for index, card in enumerate(cards):
-        if skip_wilds:
-            if card.value != '2':
-                if not with_indices:
-                    color_format_print_single_card(card, index=None)
-                else:
-                    color_format_print_single_card(card, index)
+        # if skip_wilds:
+        #     if card.value != '2':
+        #         if not with_indices:
+        #             color_format_print_single_card(card, index=None)
+        #         else:
+        #             color_format_print_single_card(card, index)
+        # else:
+        if not with_indices:
+            color_format_print_single_card(card, index=None, single_line=single_line)
         else:
-            if not with_indices:
-                color_format_print_single_card(card, index=None)
-            else:
-                color_format_print_single_card(card, index)
+            color_format_print_single_card(card, index, single_line)
 
 
-def color_format_print_single_card(card, index):
-    print(get_formatted_card_string(card, index=index))
+def color_format_print_single_card(card, index, single_line=False):
+    if not single_line:
+        print(get_formatted_card_string(card, index=index))
+    else:
+        print(get_formatted_card_string(card, index=index), end=" ")
 
 
 def get_formatted_card_string(card, index):
@@ -134,6 +138,14 @@ def auto_select_down_cards(hand, victory_cards, down_cards):
             hand.cards.remove(card)
 
 
+def get_wild_cards(grouped_victory_cards):
+    wild_cards = []
+    for group in grouped_victory_cards:
+        if all(card.value == '2' for card in group):
+            wild_cards = group
+    return wild_cards
+
+
 class Game:
     def __init__(self):
         self.playing = True
@@ -168,7 +180,7 @@ class Game:
         self.rounds = {
             1: {"name": "2 x 3 of a kind (No 'May I' allowed on this hand!)",
                 "func": VictoryConditions.two_three_of_a_kind},
-            2: {"name": "1 x 3 of a kind & 1 x 4 card sequence", "func": None},
+            2: {"name": "1 x 3 of a kind & 1 x 4 card sequence (A.K.A. \"One of Each\")", "func": None},
             3: {"name": "2 x 4 card sequence", "func": None},
             4: {"name": "3 x 3 of a kind", "func": None},
             5: {"name": "2 x 3 of a kind & 1 x 4 card sequence", "func": None},
@@ -185,14 +197,11 @@ class Game:
             if self.rounds[self.round]['func'](self.hand.cards, self.victory_cards) and not self.down:
                 self.prompt_for_card_draw()
                 self.prompt_to_go_down()
-                self.prompt_for_discard()
             else:
                 self.prompt_for_card_draw()
                 if self.rounds[self.round]['func'](self.hand.cards, self.victory_cards) and not self.down:
                     self.prompt_to_go_down()
-                    self.prompt_for_discard()
-                else:
-                    self.prompt_for_discard()
+            self.prompt_for_discard()
             for opponent_index, opponent in enumerate(self.opponents, start=1):
                 self.opponents_turn(opponent_index, opponent)
                 if len(opponent.hand) == 0:
@@ -235,14 +244,14 @@ class Game:
 
         # check victory condition, and go down if possible
 
-        if self.rounds[self.round]['func'](opponent.hand.cards, opponent.victory_cards):
+        if self.rounds[self.round]['func'](opponent.hand.cards, opponent.victory_cards) and not opponent.down:
             if self.round == 1:
                 # 2 x 3 of a kind
                 opponent.victory_card_values = set([card.value for card in opponent.victory_cards.cards])
                 if 1 <= len(opponent.victory_card_values) <= 2 or len(opponent.victory_cards) == 6:
                     print(f"{opponent.formatted_name} is going down.\n")
-                    print(f"{opponent.formatted_name} uses the following cards to go down:\n"
-                          f"{opponent.victory_cards}")
+                    print(f"{opponent.formatted_name} uses the following cards to go down:\n")
+                    color_format_print_cards(opponent.victory_cards)
                     auto_select_down_cards(opponent.hand, opponent.victory_cards, opponent.down_cards)
                     self.down = True
 
@@ -264,13 +273,20 @@ class Game:
         color_format_print_cards(self.hand)
         if self.down_cards:
             print(f"\nYour down cards:\n")
-            color_format_print_cards(self.down_cards)
+            color_format_print_cards(self.down_cards, single_line=True)
+            print("\n")
+        for opponent in self.opponents:
+            if opponent.down_cards:
+                print(f"\n{opponent.formatted_name}'s down cards:\n")
+                # TODO: Implement melding with down cards.
+                color_format_print_cards(opponent.down_cards, single_line=True)
+                print("\n")
         if self.verbose:
             print(f"\nDiscard pile (bottom to top):\n{self.discard_pile}\n")
         else:
             print(
                 f"\nDiscard pile:\n"
-                f"{get_formatted_card_string(self.discard_pile[len(self.discard_pile) - 1], index=None)}\n")
+                f"\n{get_formatted_card_string(self.discard_pile[len(self.discard_pile) - 1], index=None)}\n")
 
     def prompt_to_go_down(self):
         print(f"{BColors.OK_BLUE}You may go down using a subset of the following cards:{BColors.END_COLOR}\n")
@@ -290,40 +306,69 @@ class Game:
             # 2 x 3 of a kind
             self.victory_card_values = set([card.value for card in self.victory_cards.cards])
             if 1 <= len(self.victory_card_values) <= 2 or len(self.victory_cards) == 6:
-                print("Auto-selecting down cards.")
-                auto_select_down_cards(self.hand, self.victory_cards, self.down_cards)
-                self.down = True
+                self.simple_go_down()
             else:
-                # TODO: Fix choosing of down cards.
-                card_groups_needed_to_go_down = 2
-                victory_cards_and_values = [(card, card.value) for card in self.victory_cards.cards]
-                values = set(map(lambda x: x[1], victory_cards_and_values))
-                grouped_victory_cards = sorted([[y[0] for y in victory_cards_and_values if y[1] == x] for x in values])
-                for index, card_group in enumerate(grouped_victory_cards):
-                    grouped_victory_card_names = [card.name for card in card_group]
-                    if '2' in grouped_victory_card_names:
-                        # TODO: Wild card condition does not seem to be working - investigate.
-                        print(
-                            f"X: [{', '.join(map(str, grouped_victory_card_names))}] (Wild cards, not yet selectable)")
-                    else:
-                        print(f"{index}: [{', '.join(map(str, grouped_victory_card_names))}]")
-                    # print(f"{index}: {}")
-                for i in range(card_groups_needed_to_go_down):
-                    card_set_index = input(f"Choose a set of cards with which to go down."
-                                           f"(Set {i + 1} of {card_groups_needed_to_go_down})\n")
-                    for card in list(self.hand.cards):
-                        if card in grouped_victory_cards[int(card_set_index)]:
-                            self.down_cards.add(card)
-                            self.hand.cards.remove(card)
-                if len(self.down_cards) <= 6 and '2' in self.victory_card_values:
-                    add_wild_cards = input("Would you like to add your wild card(s) to your down cards?\n"
-                                           "1. Yes\n"
-                                           "2. No\n")
-                    if add_wild_cards == '1':
-                        # TODO: Add wild cards to down cards.
-                        self.down = True
-                    elif add_wild_cards == '2':
-                        self.down = True
+                self.complex_go_down()
+        self.down = True
+
+    def complex_go_down(self):
+        # TODO: Fix choosing of down cards.
+        card_groups_needed_to_go_down = 2
+        victory_cards_and_values = [(card, card.value) for card in self.victory_cards.cards]
+        values = set(map(lambda x: x[1], victory_cards_and_values))
+        grouped_victory_cards = sorted([[y[0] for y in victory_cards_and_values if y[1] == x] for x in values])
+        wild_cards = get_wild_cards(grouped_victory_cards)
+        if wild_cards:
+            available_wild_cards = len(wild_cards)
+        else:
+            available_wild_cards = 0
+        if len(grouped_victory_cards) <= 2:
+            for card in list(self.hand.cards):
+                if card in self.victory_cards.cards and card.value != '2':
+                    self.down_cards.add(card)
+                    self.hand.cards.remove(card)
+            self.prompt_to_add_wild_cards_to_down_cards(wild_cards)
+        else:
+            for index, card_group in enumerate(grouped_victory_cards):
+                grouped_victory_card_names = [card.name for card in card_group]
+                for group in grouped_victory_card_names:
+                    if len(group) == 2 and available_wild_cards:
+                        group.append('Wild Card')
+                        available_wild_cards -= 1
+                if any('2' in name for name in grouped_victory_card_names):
+                    # print("\n")
+                    print(f"X: [{', '.join(map(str, grouped_victory_card_names))}] (Wild cards, not yet selectable)")
+                else:
+                    print(f"{index}: [{', '.join(map(str, grouped_victory_card_names))}]")
+            for i in range(card_groups_needed_to_go_down):
+                card_set_index = input(f"Choose a set of cards with which to go down."
+                                       f"(Set {i + 1} of {card_groups_needed_to_go_down})\n")
+                self.put_down_cards(card_set_index, grouped_victory_cards)
+            if len(self.down_cards) <= 6 and '2' in self.victory_card_values:
+                self.prompt_to_add_wild_cards_to_down_cards(wild_cards)
+
+    def prompt_to_add_wild_cards_to_down_cards(self, wild_cards):
+        add_wild_cards = input("Would you like to add your wild card(s) to your down cards?\n"
+                               "1. Yes\n"
+                               "2. No\n")
+        if add_wild_cards == '1':
+            for card in list(self.hand.cards):
+                if card in wild_cards:
+                    self.down_cards.add(card)
+                    self.hand.cards.remove(card)
+                    self.down = True
+        elif add_wild_cards == '2':
+            self.down = True
+
+    def put_down_cards(self, index, cards):
+        for card in list(self.hand.cards):
+            if card in cards[int(index)]:
+                self.down_cards.add(card)
+                self.hand.cards.remove(card)
+
+    def simple_go_down(self):
+        print("Auto-selecting down cards.")
+        auto_select_down_cards(self.hand, self.victory_cards, self.down_cards)
         self.down = True
 
     def prompt_for_card_draw(self):
