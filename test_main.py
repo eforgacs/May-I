@@ -127,7 +127,7 @@ class TestGame(TestCase):
         self.assertEqual(Stack(), self.game.down_cards)
         self.assertEqual(self.threes_and_fours_hand, self.game.hand)
         VictoryConditions.two_three_of_a_kind(self.game.hand.cards, self.game.victory_cards)
-        self.game.auto_select_down_cards()
+        auto_select_down_cards(self.game.hand, self.game.victory_cards, self.game.down_cards)
 
         self.assertEqual(self.threes_and_fours_hand, self.game.down_cards)
         self.assertEqual(Stack(), self.game.hand)

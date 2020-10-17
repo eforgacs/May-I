@@ -1,4 +1,3 @@
-import random
 from collections import Counter
 
 import pydealer
@@ -58,6 +57,9 @@ class Opponent:
         self.name = name
         self.hand = pydealer.Stack()
         self.color = color
+        self.victory_cards = pydealer.Stack()
+        self.down_cards = pydealer.Stack()
+        self.formatted_name = f"{self.color}{self.name}{BColors.END_COLOR}"
 
 
 def prompt_to_choose_card(msg, cards, skip_wilds=False):
@@ -114,6 +116,24 @@ def get_points(cards):
     return card_points
 
 
+def get_discard_choices(count, opponent):
+    possible_discard_choices = []
+    for card_index, card in enumerate(opponent.hand):
+        if card.value != '2':
+            card_count = count.get(card.value)
+            if card_count:
+                if card_count == 1:
+                    possible_discard_choices.append(card_index)
+    return possible_discard_choices
+
+
+def auto_select_down_cards(hand, victory_cards, down_cards):
+    for card in list(hand.cards):
+        if card in victory_cards.cards:
+            down_cards.add(card)
+            hand.cards.remove(card)
+
+
 class Game:
     def __init__(self):
         self.playing = True
@@ -162,58 +182,95 @@ class Game:
         self.current_situation()
 
         while self.playing:
-            if self.rounds[self.round]['func'](self.hand.cards, self.victory_cards):
+            if self.rounds[self.round]['func'](self.hand.cards, self.victory_cards) and not self.down:
                 self.prompt_for_card_draw()
                 self.prompt_to_go_down()
                 self.prompt_for_discard()
             else:
                 self.prompt_for_card_draw()
-                if self.rounds[self.round]['func'](self.hand.cards, self.victory_cards):
+                if self.rounds[self.round]['func'](self.hand.cards, self.victory_cards) and not self.down:
                     self.prompt_to_go_down()
-                self.prompt_for_discard()
+                    self.prompt_for_discard()
+                else:
+                    self.prompt_for_discard()
             for opponent_index, opponent in enumerate(self.opponents, start=1):
                 self.opponents_turn(opponent_index, opponent)
+                if len(opponent.hand) == 0:
+                    print(f"{opponent.formatted_name} has won.")
             self.current_situation()
             if len(self.hand) == 0:
                 print("Congratulations, you win :)")
                 self.playing = False
 
     def opponents_turn(self, opponent_index, opponent):
-        formatted_opponent_name = f"{opponent.color}{opponent.name}{BColors.END_COLOR}"
-        print(f"\n{formatted_opponent_name}'s (opponent #{opponent_index}) turn:")
-        deck_or_discard_pile = random.randint(0, 1)
-        if deck_or_discard_pile == 0:
-            print(f"{formatted_opponent_name} chooses a card from the deck.")
-            opponent.hand.add(self.deck.deal())
-        elif deck_or_discard_pile == 1:
-            top_discarded_card = self.discard_pile[len(self.discard_pile) - 1]
-            print(f"{formatted_opponent_name}"
+
+        top_discarded_card = self.discard_pile[len(self.discard_pile) - 1]
+        print(f"\n{opponent.formatted_name}'s (opponent #{opponent_index}) turn:")
+
+        # choosing a card
+
+        opponent_card_values = [card.value for card in opponent.hand.cards]
+        count = Counter(opponent_card_values)
+        take_from_discard_pile = False
+        top_discard_match_count = count.get(top_discarded_card.value)
+        if top_discarded_card.value in opponent_card_values:
+            # depends on the playing style of the AI, but a different playing style could choose to only take
+            # the discard if they have one or more of the cards already, or two or more, etc.
+            if top_discard_match_count >= 1:
+                take_from_discard_pile = True
+        if take_from_discard_pile:
+            print(f"{opponent.formatted_name}"
                   f" chooses the "
                   f"{get_formatted_card_string(top_discarded_card, index=None)}"
                   f" from the discard pile.")
             opponent.hand.add(self.discard_pile.deal())
+            opponent_card_values = [card.value for card in opponent.hand.cards]
+            count = Counter(opponent_card_values)
+        else:
+            print(f"{opponent.formatted_name} chooses a card from the deck.")
+            opponent.hand.add(self.deck.deal())
+            opponent_card_values = [card.value for card in opponent.hand.cards]
+            count = Counter(opponent_card_values)
         # TODO: Improve AI discard selection.
-        possible_choices = []
-        for card_index, card in enumerate(opponent.hand):
-            if card.value != '2':
-                possible_choices.append(card_index)
-        discarded_card_index = random.choice(possible_choices)
+
+        # check victory condition, and go down if possible
+
+        if self.rounds[self.round]['func'](opponent.hand.cards, opponent.victory_cards):
+            if self.round == 1:
+                # 2 x 3 of a kind
+                opponent.victory_card_values = set([card.value for card in opponent.victory_cards.cards])
+                if 1 <= len(opponent.victory_card_values) <= 2 or len(opponent.victory_cards) == 6:
+                    print(f"{opponent.formatted_name} is going down.\n")
+                    print(f"{opponent.formatted_name} uses the following cards to go down:\n"
+                          f"{opponent.victory_cards}")
+                    auto_select_down_cards(opponent.hand, opponent.victory_cards, opponent.down_cards)
+                    self.down = True
+
+                # TODO: Implement other go down scenarios.
+
+        # discard
+        possible_discard_choices = get_discard_choices(count, opponent)
+        if possible_discard_choices:
+            discarded_card_index = max(possible_discard_choices)
+        else:
+            # TODO: discarding the largest card in your hand arbitrarily is a really dumb move. fix it
+            discarded_card_index = len(opponent.hand.cards) - 1
         discarded_card = self.discard(discarded_card_index, opponent.hand)
-        print(f"{formatted_opponent_name} discards: {get_formatted_card_string(discarded_card, index=None)}.")
+        print(f"{opponent.formatted_name} discards: {get_formatted_card_string(discarded_card, index=None)}.")
         input()
 
     def current_situation(self):
         print(f"Your hand ({get_points(self.hand)} points):\n")
         color_format_print_cards(self.hand)
+        if self.down_cards:
+            print(f"\nYour down cards:\n")
+            color_format_print_cards(self.down_cards)
         if self.verbose:
             print(f"\nDiscard pile (bottom to top):\n{self.discard_pile}\n")
         else:
             print(
                 f"\nDiscard pile:\n"
                 f"{get_formatted_card_string(self.discard_pile[len(self.discard_pile) - 1], index=None)}\n")
-        if self.down_cards:
-            print(f"Your down cards:\n")
-            color_format_print_cards(self.down_cards)
 
     def prompt_to_go_down(self):
         print(f"{BColors.OK_BLUE}You may go down using a subset of the following cards:{BColors.END_COLOR}\n")
@@ -234,7 +291,8 @@ class Game:
             self.victory_card_values = set([card.value for card in self.victory_cards.cards])
             if 1 <= len(self.victory_card_values) <= 2 or len(self.victory_cards) == 6:
                 print("Auto-selecting down cards.")
-                self.auto_select_down_cards()
+                auto_select_down_cards(self.hand, self.victory_cards, self.down_cards)
+                self.down = True
             else:
                 # TODO: Fix choosing of down cards.
                 card_groups_needed_to_go_down = 2
@@ -244,7 +302,9 @@ class Game:
                 for index, card_group in enumerate(grouped_victory_cards):
                     grouped_victory_card_names = [card.name for card in card_group]
                     if '2' in grouped_victory_card_names:
-                        print(f"X: [{', '.join(map(str, grouped_victory_card_names))}] (Wild cards, not yet selectable)")
+                        # TODO: Wild card condition does not seem to be working - investigate.
+                        print(
+                            f"X: [{', '.join(map(str, grouped_victory_card_names))}] (Wild cards, not yet selectable)")
                     else:
                         print(f"{index}: [{', '.join(map(str, grouped_victory_card_names))}]")
                     # print(f"{index}: {}")
@@ -265,12 +325,6 @@ class Game:
                     elif add_wild_cards == '2':
                         self.down = True
         self.down = True
-
-    def auto_select_down_cards(self):
-        for card in list(self.hand.cards):
-            if card in self.victory_cards.cards:
-                self.down_cards.add(card)
-                self.hand.cards.remove(card)
 
     def prompt_for_card_draw(self):
         while len(self.hand.cards) % 2 != 0:
@@ -303,7 +357,7 @@ class Game:
             else:
                 discarded_card = self.discard(discard_entry, self.hand)
                 print(f"You discarded: {get_formatted_card_string(discarded_card, index=None)}.\n")
-        print(f"Your hand (after discarding):\n")
+        print(f"Your hand ({get_points(self.hand)} points) (after discarding):\n")
         color_format_print_cards(self.hand)
 
     def discard(self, discard_index, hand):
