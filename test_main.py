@@ -1,10 +1,12 @@
-from collections import deque
+from collections import deque, Counter
 from unittest import TestCase
 from unittest.mock import patch
 
 from pydealer import Card, Stack, VALUES
 
 from src.main import VictoryConditions, Game, get_points, auto_select_down_cards
+
+all_spades = [Card(value, 'spades') for value in VALUES]
 
 
 def three_of_a_kind(value):
@@ -109,7 +111,6 @@ class TestGame(TestCase):
              Card(value='4', suit='Clubs'), Card(value='4', suit='Diamonds'), Card(value='4', suit='Hearts')]))
 
     def test_discard(self):
-        all_spades = [Card(value, 'spades') for value in VALUES]
         all_spades_minus_ace = [spade for spade in all_spades if spade.value != 'Ace']
         self.game.hand.add(all_spades)
         self.assertEqual(Card('Ace', 'spades'), self.game.discard(12, self.game.hand))
@@ -132,7 +133,7 @@ class TestGame(TestCase):
         self.assertEqual(self.threes_and_fours_hand, self.game.down_cards)
         self.assertEqual(Stack(), self.game.hand)
 
-    @patch('builtins.input', return_value='2')
+    @patch('builtins.input', side_effect='2')
     def test_prompt_to_go_down(self, mock_input):
         self.game.down = True
         self.game.prompt_to_go_down()
@@ -190,6 +191,72 @@ class TestGame(TestCase):
         self.assertEqual(20, get_points(self.game.hand))
 
     def test_get_points_of_hand_all_spades(self):
-        all_spades = [Card(value, 'spades') for value in VALUES]
         self.game.hand.add(all_spades)
         self.assertEqual(117, get_points(self.game.hand))
+
+    @patch('builtins.input', side_effect='1')
+    def test_prompt_to_meld_auto_meld(self, mock_input):
+        self.game.hand.add(all_spades)
+        self.game.down = True
+
+        self.game.opponents[0].down_cards.add(three_of_a_kind(3))
+        self.game.opponents[0].down_cards.add(three_of_a_kind(4))
+
+        self.game.opponents[1].down_cards.add(three_of_a_kind(4))
+        self.game.opponents[1].down_cards.add(three_of_a_kind(5))
+
+        self.game.opponents[2].down_cards.add(three_of_a_kind(5))
+        self.game.opponents[2].down_cards.add(three_of_a_kind(6))
+        self.game.prompt_to_meld()
+        self.assertEqual(deque([Card(value='2', suit='Spades'),
+                                Card(value='7', suit='Spades'),
+                                Card(value='8', suit='Spades'),
+                                Card(value='9', suit='Spades'),
+                                Card(value='10', suit='Spades'),
+                                Card(value='Jack', suit='Spades'),
+                                Card(value='Queen', suit='Spades'),
+                                Card(value='King', suit='Spades'),
+                                Card(value='Ace', suit='Spades')]), self.game.hand.cards)
+
+    @patch('builtins.input', side_effect=['2', '1', '1', '1', '1'])
+    def test_prompt_to_meld_manual_meld(self, mock_input):
+        self.game.hand.add(all_spades)
+        self.game.down = True
+
+        self.game.opponents[0].down_cards.add(three_of_a_kind(3))
+        self.game.opponents[0].down_cards.add(three_of_a_kind(4))
+
+        self.game.opponents[1].down_cards.add(three_of_a_kind(4))
+        self.game.opponents[1].down_cards.add(three_of_a_kind(5))
+
+        self.game.opponents[2].down_cards.add(three_of_a_kind(5))
+        self.game.opponents[2].down_cards.add(three_of_a_kind(6))
+        self.game.prompt_to_meld()
+        self.assertEqual(deque([Card(value='2', suit='Spades'),
+                                Card(value='7', suit='Spades'),
+                                Card(value='8', suit='Spades'),
+                                Card(value='9', suit='Spades'),
+                                Card(value='10', suit='Spades'),
+                                Card(value='Jack', suit='Spades'),
+                                Card(value='Queen', suit='Spades'),
+                                Card(value='King', suit='Spades'),
+                                Card(value='Ace', suit='Spades')]), self.game.hand.cards)
+
+    def test_get_discard_choices(self):
+        self.game.hand.add(all_spades)
+        self.game.down = True
+        for opponent in self.game.opponents:
+            opponent.hand.empty()
+
+        self.game.opponents[0].hand.add(all_spades)
+        self.game.opponents[0].down_cards.add(three_of_a_kind(3))
+        self.game.opponents[0].down_cards.add(three_of_a_kind(4))
+
+        self.game.opponents[1].down_cards.add(three_of_a_kind(4))
+        self.game.opponents[1].down_cards.add(three_of_a_kind(5))
+
+        self.game.opponents[2].down_cards.add(three_of_a_kind(5))
+        self.game.opponents[2].down_cards.add(three_of_a_kind(6))
+
+        # 7 of Spades through Ace of Spades (indices)
+        self.assertEqual([5, 6, 7, 8, 9, 10, 11, 12], self.game.get_discard_choices(self.game.opponents[0]))
